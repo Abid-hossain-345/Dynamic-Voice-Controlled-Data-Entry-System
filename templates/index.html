@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Voice Form</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f5f7fa; padding: 20px; }
+        h2 { color: #333; }
+
+        form {
+            background: #fff; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 600px; margin-bottom: 30px;
+        }
+
+        .form-row { display: flex; align-items: center; margin-bottom: 15px; }
+        .form-row input {
+            flex: 1; padding: 8px 12px; border-radius: 8px;
+            border: 1px solid #ccc; margin-right: 10px;
+        }
+        .form-row button {
+            padding: 8px 12px; border-radius: 8px;
+            border: none; background: #4CAF50; color: white; cursor: pointer;
+        }
+
+        #submissions1 {
+            background: #fff; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1); max-width: 800px;
+        }
+        .edit-btn {
+            margin-left: 10px; background: #FF9800; color: white;
+            border: none; padding: 5px 10px; cursor: pointer; border-radius: 8px;
+        }
+        .edit-btn:hover { background: #d48700; }
+
+        #download-btn {
+            margin-top: 20px; padding: 10px 15px; background: #2196F3;
+            color: white; border: none; border-radius: 8px; cursor: pointer;
+        }
+        #download-btn:hover { background: #0b7dda; }
+    </style>
+</head>
+
+<body>
+    <h2>📝 Dynamic Voice Controlled Form</h2>
+
+    <!-- ✅ PDF Upload -->
+    <div style="margin-bottom:20px;">
+        <h3>📂 Upload PDF</h3>
+        <input type="file" id="pdfFile" accept=".pdf">
+        <button onclick="uploadPDF()">📤 Upload</button>
+        <br><br>
+        <textarea id="pdfText" rows="10" cols="80"
+                  placeholder="Extracted PDF text will appear here..."></textarea>
+    </div>
+
+    <!-- ✅ Column Controls -->
+    <div id="column-controls">
+        Add Column: <input type="text" id="newColumnName">
+        <button type="button" onclick="addColumn()">➕ Add</button>
+        <button type="button" onclick="removeColumn()">➖ Remove</button>
+        <select id="removeColumnSelect"></select>
+    </div>
+
+    <!-- ✅ Dynamic Form -->
+    <form id="voiceForm"></form>
+
+    <h3>📊 Submitted Data</h3>
+
+    <ul id="submissions1">
+        {% for s in submissions1 %}
+        <li>
+            {% for key, value in s.items() %}
+                <strong>{{ key }}</strong>: {{ value }} &nbsp;
+            {% endfor %}
+
+            <button class="edit-btn"
+                    type="button"
+                    data-row='{{ s | tojson | safe }}'
+                    onclick="editRow(event, this)">✏ Edit</button>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <button id="download-btn" type="button" onclick="downloadCSV()">⬇ Download CSV</button>
+
+<script>
+/* ============================================================
+    ✅ GLOBAL VARIABLES
+============================================================ */
+let columns = JSON.parse(localStorage.getItem('columns')) || ["name", "age", "country"];
+let editingId = null;
+let prefillData = null;
+
+const voiceForm = document.getElementById('voiceForm');
+const removeSelect = document.getElementById('removeColumnSelect');
+
+/* ============================================================
+    ✅ DYNAMIC FORM RENDERING
+============================================================ */
+function renderForm() {
+    voiceForm.innerHTML = '';
+    removeSelect.innerHTML = '';
+
+    columns.forEach(col => {
+        let option = document.createElement('option');
+        option.value = col;
+        option.text = col.toUpperCase();
+        removeSelect.add(option);
+
+        let row = document.createElement('div');
+        row.className = 'form-row';
+
+        row.innerHTML = `
+            <input type="text" id="${col}" placeholder="${col}">
+            <button type="button" onclick="startRecognition('${col}')">🎤</button>
+        `;
+
+        voiceForm.appendChild(row);
+
+        // ✅ Prefill values during editing
+        if (prefillData && prefillData[col] !== undefined) {
+            document.getElementById(col).value = prefillData[col];
+        }
+    });
+
+    let submitBtn = document.createElement('button');
+    submitBtn.type = "submit";
+    submitBtn.textContent = editingId ? "💾 Update" : "✅ Submit";
+    submitBtn.style.background = editingId ? "#FF9800" : "#2196F3";
+    submitBtn.style.color = "white";
+    submitBtn.style.marginTop = "10px";
+
+    voiceForm.appendChild(submitBtn);
+
+    localStorage.setItem("columns", JSON.stringify(columns));
+}
+
+renderForm();
+
+/* ============================================================
+    ✅ ADD COLUMN
+============================================================ */
+function addColumn() {
+    const newCol = document.getElementById("newColumnName").value.trim().toLowerCase();
+    if (!newCol) return alert("Enter a column name.");
+    if (columns.includes(newCol)) return alert("Already exists.");
+
+    columns.push(newCol);
+    renderForm();
+    document.getElementById("newColumnName").value = "";
+}
+
+/* ============================================================
+    ✅ REMOVE COLUMN
+============================================================ */
+function removeColumn() {
+    const col = removeSelect.value;
+    columns = columns.filter(c => c !== col);
+    renderForm();
+}
+
+/* ============================================================
+    ✅ VOICE INPUT
+============================================================ */
+function startRecognition(fieldId) {
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = "en-US";
+    recognition.start();
+
+    recognition.onresult = function(event) {
+        document.getElementById(fieldId).value = event.results[0][0].transcript;
+    };
+}
+
+/* ============================================================
+    ✅ PDF UPLOAD + AUTO FILL
+============================================================ */
+function uploadPDF() {
+    const file = document.getElementById("pdfFile").files[0];
+    if (!file) return alert("Select PDF first");
+
+    const fd = new FormData();
+    fd.append("pdf_file", file);
+
+    fetch("/upload_pdf", { method: "POST", body: fd })
+    .then(r => r.json())
+    .then(res => {
+        if (res.status !== "success") return alert(res.message);
+
+        document.getElementById("pdfText").value = res.text;
+
+        for (let key in res.data) {
+            let field = document.getElementById(key);
+            if (field) field.value = res.data[key];
+        }
+    });
+}
+
+/* ============================================================
+    ✅ EDIT ROW
+============================================================ */
+function editRow(event, btn) {
+    event.preventDefault();
+    const rowData = JSON.parse(btn.dataset.row);
+
+    editingId = rowData.id;
+    prefillData = rowData;
+
+    renderForm();
+}
+
+/* ============================================================
+    ✅ SUBMIT / UPDATE
+============================================================ */
+voiceForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+
+    let data = {};
+    columns.forEach(col => {
+        data[col] = document.getElementById(col).value;
+    });
+
+    if (editingId) data.id = editingId;
+
+    fetch("/submit", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.status !== "success") return alert(res.message);
+
+        editingId = null;
+        prefillData = null;
+
+        location.reload();
+    });
+});
+
+/* ============================================================
+    ✅ CSV DOWNLOAD
+============================================================ */
+function downloadCSV() {
+    window.location.href = "/download_csv";
+}
+</script>
+</body>
+</html>
